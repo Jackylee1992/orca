@@ -150,6 +150,7 @@ describe('ExternalChromiumBrowserProcess integration', () => {
           getAgentBrowserBridge: () => null,
           resolveWorkspaceSelector: async (selector) => ({ id: selector }),
           resolveBrowserWorkspace: async (selector) => ({ id: selector }),
+          getBrowserWorkspaceExecutionHostId: () => 'local',
           resolveBrowserNetworkExecutionHost: () => {
             throw new Error('No browser network execution host')
           },

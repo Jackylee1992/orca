@@ -90,6 +90,7 @@ const host: RuntimeBrowserCommandHost = {
   // Distinct IDs prove registry fencing uses resolved workspaces, not caller selectors.
   resolveWorkspaceSelector: async (selector) => ({ id: `id-${selector}` }),
   resolveBrowserWorkspace: async (selector) => ({ id: `id-${selector}` }),
+  getBrowserWorkspaceExecutionHostId: () => 'local',
   resolveBrowserNetworkExecutionHost: () => {
     throw new Error('No browser network execution host')
   },

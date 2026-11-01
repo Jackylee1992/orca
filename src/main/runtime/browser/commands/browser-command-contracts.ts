@@ -38,6 +38,11 @@ export type RuntimeBrowserCommandHost = {
     repoId?: string
     hostId?: ExecutionHostId
   }>
+  /** The host a resolved browser workspace runs on. */
+  getBrowserWorkspaceExecutionHostId(worktree: {
+    repoId?: string
+    hostId?: ExecutionHostId
+  }): ExecutionHostId
   resolveBrowserNetworkExecutionHost(worktree?: {
     id: string
     repoId?: string
