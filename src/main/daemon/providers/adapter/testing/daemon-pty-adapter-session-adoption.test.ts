@@ -538,7 +538,8 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       expect(procs).toHaveLength(2)
       expect(procs[0]).toHaveProperty('id')
       expect(procs[0]).toHaveProperty('cwd')
-      expect(procs[0]).toHaveProperty('title')
+      // The listing knows no title; a made-up one would read as the terminal's own.
+      expect(procs.map((proc) => proc.title)).toEqual(['', ''])
       expect(procs[0].cwd).toBe('/repo/owned-before-osc7')
       expect(procs[0].worktreeId).toBe('repo::/repo/owned-before-osc7')
       expect(adapter.getLastAuditObservation()).toMatchObject({
