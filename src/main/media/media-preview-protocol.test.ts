@@ -24,7 +24,8 @@ vi.mock('./remote-file-preview-reader', async (importOriginal) => ({
   statRemotePreviewFile: vi.fn(),
   readRemotePreviewChunk: vi.fn(),
   readRemotePreviewRange: vi.fn(),
-  assertRemoteChunkReadsSupported: vi.fn()
+  assertRemoteChunkReadsSupported: vi.fn(),
+  renewRemotePreviewGrant: vi.fn()
 }))
 
 import {
@@ -36,13 +37,16 @@ import {
 } from './media-preview-protocol'
 import {
   REMOTE_PREVIEW_UPDATE_REQUIRED_MESSAGE,
+  RemotePreviewGrantLapsedError,
   RemotePreviewPairingChangedError,
   assertRemoteChunkReadsSupported,
+  renewRemotePreviewGrant,
   readRemotePreviewChunk,
   readRemotePreviewRange,
   statRemotePreviewFile
 } from './remote-file-preview-reader'
 import type * as RemoteFilePreviewReader from './remote-file-preview-reader'
+import { remoteFilePath } from '../../shared/remote-file-locator'
 
 function png(width: number, height: number): Uint8Array {
   const bytes = new Uint8Array(33)
@@ -280,7 +284,7 @@ describe('media preview protocol', () => {
 
     it('streams a remote image or PDF to its viewer, refusing a proven-oversized image', async () => {
       vi.mocked(readRemotePreviewRange).mockImplementation(async (address) =>
-        address.relativePath.endsWith('.pdf') ? new TextEncoder().encode('%PDF-1.7') : png(4, 3)
+        remoteFilePath(address).endsWith('.pdf') ? new TextEncoder().encode('%PDF-1.7') : png(4, 3)
       )
       await expect(
         grantRemoteFilePreview(event, addr('docs/shot.png'), store)
@@ -300,7 +304,7 @@ describe('media preview protocol', () => {
         'Image dimensions exceed the preview safety limit'
       )
       vi.mocked(readRemotePreviewRange).mockImplementation(async (address) =>
-        address.relativePath.endsWith('.pdf') ? new TextEncoder().encode('%PDF-1.7') : png(4, 3)
+        remoteFilePath(address).endsWith('.pdf') ? new TextEncoder().encode('%PDF-1.7') : png(4, 3)
       )
       vi.mocked(statRemotePreviewFile).mockResolvedValueOnce({ size: 60 * 1024 * 1024, mtime: 1 })
       // An <img> decodes the whole file, so images keep the 50 MB cap; PDFs read by range don't.
@@ -423,6 +427,44 @@ describe('media preview protocol', () => {
       )
       expect((await range(url)).status).toBe(410)
       expect((await range(url)).status).toBe(404)
+    })
+
+    it('renews a lapsed host grant once for a burst, then streams on through the new grant', async () => {
+      const granted: RemoteFilePreviewAddress = {
+        environmentId: 'env-1',
+        worktree: 'id:wt-1',
+        grantId: 'g-1',
+        absolutePath: '/tmp/clip.webm',
+        expectedEnvironmentPairingRevision: 3
+      }
+      const minted = await grantRemoteFilePreview(event, granted, store)
+      if (!minted) {
+        throw new Error('Missing preview')
+      }
+      now += 1_500
+      vi.mocked(statRemotePreviewFile).mockImplementation(async (address) =>
+        address.grantId === 'g-1'
+          ? Promise.reject(new RemotePreviewGrantLapsedError('terminal_file_grant_expired'))
+          : { size: 6, mtime: 1 }
+      )
+      vi.mocked(renewRemotePreviewGrant).mockResolvedValue({ ...granted, grantId: 'g-2' })
+
+      const burst = await Promise.all([range(minted.mediaUrl), range(minted.mediaUrl, 'bytes=0-1')])
+
+      expect(burst.map((response) => response.status)).toEqual([206, 206])
+      expect(renewRemotePreviewGrant).toHaveBeenCalledTimes(1)
+      expect(readRemotePreviewChunk).toHaveBeenCalledWith(
+        { ...granted, grantId: 'g-2' },
+        2,
+        3,
+        expect.any(AbortSignal)
+      )
+      vi.mocked(renewRemotePreviewGrant).mockRejectedValue(new Error('gone'))
+      vi.mocked(statRemotePreviewFile).mockRejectedValue(
+        new RemotePreviewGrantLapsedError('terminal_file_grant_expired')
+      )
+      now += 1_500
+      expect((await range(minted.mediaUrl)).status).toBe(502)
     })
 
     it("revokes a removed environment's grants and the renderer's on teardown", async () => {
