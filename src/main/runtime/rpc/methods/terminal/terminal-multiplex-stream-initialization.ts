@@ -109,7 +109,8 @@ export async function initializeMultiplexStream(
   const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(
     ptyId,
     () => stream.outputPaused,
-    isMobile ? request.client?.id : undefined
+    isMobile ? request.client?.id : undefined,
+    state.viewerDeviceId
   )
   // Report daemon death now, before the next refused keystroke.
   const unsubscribeEndpointLoss = stream.supportsEndpointLossNotice

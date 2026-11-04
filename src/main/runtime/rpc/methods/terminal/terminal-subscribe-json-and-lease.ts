@@ -92,7 +92,12 @@ export async function runTerminalJsonSubscription(args: TerminalSubscriptionArgs
     outputBatcher?.push(data)
   })
   // JSON streams may feed xterm; register a view because withholding model replies is safer than duplicate replies.
-  const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(ptyId)
+  const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(
+    ptyId,
+    undefined,
+    undefined,
+    args.viewerDeviceId
+  )
   unsubscribeData = () => {
     releaseViewSubscriber()
     unsubscribeStreamData()

@@ -10,6 +10,7 @@ import { notifyRuntimeListeners } from '../../events/runtime-listener-delivery'
 import type { RuntimeTerminalBufferSnapshot } from '../records/runtime-terminal-state-records'
 import { AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS } from '../output/provider-snapshot-budget'
 import { assertTerminalInputWithinLimitWithYield } from '../../terminal-send-payload'
+import { TerminalViewerDevices } from './terminal-viewer-devices'
 
 export abstract class OrcaRuntimeWithNotifyRemoteTerminalViewPresenceChanged extends OrcaRuntimeWithRecordAgentPromptLifecycleState {
   protected abstract serializeTerminalBufferFromAvailableState(
@@ -41,6 +42,20 @@ export abstract class OrcaRuntimeWithNotifyRemoteTerminalViewPresenceChanged ext
     options: RuntimeTerminalWriteOptions
   ): Promise<WriteSettlement | undefined>
 
+  private readonly terminalViewerDevices = new TerminalViewerDevices()
+
+  /** A departed device's xterm never blurred; tell PTYs that no remote viewer or local pane still shows. */
+  protected reportFocusLostForDepartedDevice(deviceClientId: string): void {
+    for (const ptyId of this.terminalViewerDevices.takeDeparted(deviceClientId)) {
+      if (
+        !this.terminalViewSubscribers.hasRemote(ptyId) &&
+        this.ptyController?.hasRendererSerializer?.(ptyId) !== true
+      ) {
+        void this.ptyController?.reportFocusLost?.(ptyId)
+      }
+    }
+  }
+
   protected notifyRemoteTerminalViewPresenceChanged(ptyId: string): void {
     try {
       this.onRemoteTerminalViewPresenceChanged?.(ptyId)
@@ -53,8 +68,12 @@ export abstract class OrcaRuntimeWithNotifyRemoteTerminalViewPresenceChanged ext
   registerRemoteTerminalViewSubscriber(
     ptyId: string,
     isOutputPaused?: () => boolean,
-    mobileClientId?: string
+    mobileClientId?: string,
+    viewerDeviceId?: string
   ): () => void {
+    if (viewerDeviceId) {
+      this.terminalViewerDevices.record(viewerDeviceId, ptyId)
+    }
     const isSilent =
       mobileClientId === undefined
         ? isOutputPaused

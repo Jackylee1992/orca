@@ -16,7 +16,15 @@ export const TERMINAL_SUBSCRIBE_METHODS = [
     params: TerminalSubscribe,
     handler: async (
       params,
-      { runtime, connectionId, requestId, sendBinary, registerBinaryStreamHandler, signal },
+      {
+        runtime,
+        connectionId,
+        requestId,
+        sendBinary,
+        registerBinaryStreamHandler,
+        signal,
+        clientId: viewerDeviceId
+      },
       emit
     ) => {
       const isMobile = params.client?.type === 'mobile'
@@ -89,6 +97,7 @@ export const TERMINAL_SUBSCRIBE_METHODS = [
           emit,
           ptyId,
           clientId,
+          viewerDeviceId,
           isMobile,
           supportsDesktopViewportClaims: params.capabilities?.desktopViewportClaims === 1,
           supportsWriteUnavailable: params.capabilities?.writeUnavailable === 1,
