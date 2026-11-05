@@ -504,6 +504,36 @@ describe('media preview protocol', () => {
       expect(renewRemotePreviewGrant).toHaveBeenCalledTimes(1)
     })
 
+    it('never finishes a stream from a grant renewed onto a rewritten file', async () => {
+      const minted = await grantRemoteFilePreview(event, lapsedGrant, store)
+      if (!minted) {
+        throw new Error('Missing preview')
+      }
+      vi.mocked(renewRemotePreviewGrant)
+        .mockReset()
+        .mockResolvedValue({ ...lapsedGrant, grantId: 'g-2' })
+      vi.mocked(statRemotePreviewFile).mockImplementation(async (address) =>
+        address.grantId === 'g-2' ? { size: 6, mtime: 2 } : { size: 6, mtime: 1 }
+      )
+      vi.mocked(readRemotePreviewChunk).mockImplementation(async (address) => {
+        const lapsed = lapsedFor(address)
+        if (lapsed) {
+          throw lapsed
+        }
+        return Uint8Array.from([9, 9, 9])
+      })
+
+      const response = await range(minted.mediaUrl)
+
+      await expect(response.arrayBuffer()).rejects.toThrow()
+      expect(readRemotePreviewChunk).not.toHaveBeenCalledWith(
+        expect.objectContaining({ grantId: 'g-2' }),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      )
+    })
+
     // Why: pdf.js reads ranges over IPC, not orca-media, and a paused reader outlives its grant too.
     it('renews a lapsed grant for a PDF range read over IPC', async () => {
       const pdf = { ...lapsedGrant, absolutePath: '/tmp/report.pdf' }
