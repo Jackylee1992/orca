@@ -47,6 +47,7 @@ import {
 } from './remote-file-preview-reader'
 import type * as RemoteFilePreviewReader from './remote-file-preview-reader'
 import { remoteFilePath } from '../../shared/remote-file-locator'
+import { readPreviewGrantRange } from './preview-grant-range-read'
 
 function png(width: number, height: number): Uint8Array {
   const bytes = new Uint8Array(33)
@@ -465,6 +466,68 @@ describe('media preview protocol', () => {
       )
       now += 1_500
       expect((await range(minted.mediaUrl)).status).toBe(502)
+    })
+
+    const lapsedGrant: RemoteFilePreviewAddress = {
+      environmentId: 'env-1',
+      worktree: 'id:wt-1',
+      grantId: 'g-1',
+      absolutePath: '/tmp/clip.webm',
+      expectedEnvironmentPairingRevision: 3
+    }
+    const lapsedFor = (address: RemoteFilePreviewAddress) =>
+      address.grantId === 'g-1'
+        ? new RemotePreviewGrantLapsedError('terminal_file_grant_expired')
+        : null
+
+    // Why: the body streams after the response returns, so a chunk can find the grant lapsed while its stat is cached.
+    it('renews a grant that lapses under a streamed chunk read', async () => {
+      const minted = await grantRemoteFilePreview(event, lapsedGrant, store)
+      if (!minted) {
+        throw new Error('Missing preview')
+      }
+      vi.mocked(renewRemotePreviewGrant)
+        .mockReset()
+        .mockResolvedValue({ ...lapsedGrant, grantId: 'g-2' })
+      vi.mocked(readRemotePreviewChunk).mockImplementation(async (address) => {
+        const lapsed = lapsedFor(address)
+        if (lapsed) {
+          throw lapsed
+        }
+        return Uint8Array.from([2, 3, 4])
+      })
+
+      const response = await range(minted.mediaUrl)
+
+      expect(response.status).toBe(206)
+      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([2, 3, 4])
+      expect(renewRemotePreviewGrant).toHaveBeenCalledTimes(1)
+    })
+
+    // Why: pdf.js reads ranges over IPC, not orca-media, and a paused reader outlives its grant too.
+    it('renews a lapsed grant for a PDF range read over IPC', async () => {
+      const pdf = { ...lapsedGrant, absolutePath: '/tmp/report.pdf' }
+      vi.mocked(readRemotePreviewRange).mockResolvedValue(new TextEncoder().encode('%PDF-1.7'))
+      const minted = await grantRemoteFilePreview(event, pdf, store)
+      if (!minted) {
+        throw new Error('Missing preview')
+      }
+      now += 1_500
+      vi.mocked(renewRemotePreviewGrant)
+        .mockReset()
+        .mockResolvedValue({ ...pdf, grantId: 'g-2' })
+      vi.mocked(readRemotePreviewRange).mockImplementation(async (address) => {
+        const lapsed = lapsedFor(address)
+        if (lapsed) {
+          throw lapsed
+        }
+        return new TextEncoder().encode('PDF')
+      })
+
+      const bytes = await readPreviewGrantRange(event.sender, minted.mediaUrl, 1, 3)
+
+      expect(new TextDecoder().decode(bytes)).toBe('PDF')
+      expect(renewRemotePreviewGrant).toHaveBeenCalledTimes(1)
     })
 
     it("revokes a removed environment's grants and the renderer's on teardown", async () => {
